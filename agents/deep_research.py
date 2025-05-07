@@ -8,6 +8,7 @@ from typing import List, Type, TypeVar, Optional, Callable, Union, get_args
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+from requests.models import Response
 from modules.ai.llms import execute_completion_async
 from modules.loggers import logger
 from modules.toolkits.firecrawl_mock import FirecrawlMock
@@ -84,7 +85,7 @@ You must return the result strictly as a JSON array matching the following schem
 <schema>
 ```json
 {{
-    "learnings": "list[str], List of learnings, max of ${num_learnings},
+    "learnings": "list[str], List of learnings, max of {num_learnings},
     "follow_up_questions": "list[str], List of follow-up questions to research the topic further, max of {num_follow_up}"
 }}
 ```
@@ -118,7 +119,7 @@ Keep the answer as concise as possible - usually it should be just a few words o
 Try to follow the format specified in the prompt (for example, if the prompt is using Latex, the answer should be in Latex. 
 If the prompt gives multiple answer choices, the answer should be one of the choices).
 
-<prompt>${prompt}</prompt>
+<prompt>{prompt}</prompt>
 
 Here are all the learnings from research on the topic that you can use to help answer the prompt:
 
@@ -199,16 +200,28 @@ class DeepResearchAgent:
             "model": os.getenv("CHAT_MODEL_NAME"),
             "api_key": os.getenv("CHAT_MODEL_API_KEY"),
             "api_base": os.getenv("CHAT_MODEL_BASE_URL"),
+            "timeout": 600,
         }
-        response = await execute_completion_async(
-            system=self.system_prompt,
-            prompt=prompt,
-            response_model=response_model,
-            llm_config=llm_config,
-        )
+        retries = 3
+        for attempt in range(retries):
+            try:
+                response = await execute_completion_async(
+                    system=self.system_prompt,
+                    prompt=prompt,
+                    response_model=response_model,
+                    llm_config=llm_config,
+                )
+                if not response.text:
+                    raise ValueError("Empty response from LLM")
+            except Exception as e:
+                logger.error(f"Error generating object: {e}")
+                if attempt < retries - 1:
+                    logger.info(f"Retrying... ({attempt + 1}/{retries})")
+                    await asyncio.sleep(1)
+                else:
+                    raise
         logger.info(f"send query: {prompt}")
         response_text: str = str(response.text).strip()
-        logger.info(f"model response: {response_text}")
         if response_text.startswith("```json"):
             response_text = response_text.strip("```json").strip("```").strip()
         logger.info(f"model response: {response_text}")
@@ -243,14 +256,21 @@ class DeepResearchAgent:
         logger.info(f"生成{len(results)}个查询: ...")
         return results
 
-    async def process_page_content(self, markdown_content: str):
+    async def process_page_content(self, markdown_content: str) -> str:
         # 编写调用 LLM 的 prompt
         prompt = f"""请对以下 Markdown 内容进行精炼清洗，去除杂乱的符号，并提取内容摘要，确保不遗漏重要信息：\n{markdown_content}"""
-
+        llm_config = {
+            "model": os.getenv("CHAT_MODEL_NAME"),
+            "api_key": os.getenv("CHAT_MODEL_API_KEY"),
+            "api_base": os.getenv("CHAT_MODEL_BASE_URL"),
+            "timeout": 600,
+        }
         # 调用 LLM 进行处理
-        result = await execute_completion_async("", prompt=prompt, response_model=str)
+        response = await execute_completion_async(
+            "", prompt=prompt, response_model=str, llm_config=llm_config
+        )
 
-        return result
+        return response.text
 
     async def process_serp_result(
         self,
@@ -347,7 +367,7 @@ class DeepResearchAgent:
                     ]
 
                     contents = await asyncio.gather(*tasks)
-                    logger.info("Process page completed: {contents}")
+                    logger.info(f"Process page completed: {contents}")
                     analysis_result = await self.process_serp_result(
                         serp_query.query, contents
                     )
@@ -359,7 +379,7 @@ class DeepResearchAgent:
                     all_learnings = list(
                         set((learnings or []) + analysis_result.learnings)
                     )
-                    print(all_urls)
+                    logger.info(f"Related urls: {all_urls}")
                     logger.info(f"Process serp result completed: {analysis_result}")
 
                     if depth > 1:

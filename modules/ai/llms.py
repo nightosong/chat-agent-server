@@ -36,7 +36,6 @@ def execute_completion(
         response = llm.stream_complete(full_prompt)
     else:
         response = llm.complete(full_prompt)
-    print(response)
     return response
 
 
@@ -51,7 +50,6 @@ async def execute_completion_async(
     llm = RenDuLLM(system_prompt=system, is_chat_model=True, **llm_config)
     full_prompt = f"{system or ''}\n{prompt or ''}"
     response = await llm.acomplete(full_prompt)
-    print(response)
     if not response:
         raise Exception("LLM response is empty")
     return response

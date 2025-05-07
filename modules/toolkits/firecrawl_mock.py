@@ -151,11 +151,17 @@ class FirecrawlMock:
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=False)
             page = await browser.new_page()
-            await page.goto(f"https://www.bing.com/search?q={query}")
+            await page.goto(
+                f"https://www.bing.com/search?q={query}",
+                wait_until="networkidle",
+                timeout=timeout * 1000,
+            )
+            await page.wait_for_timeout(1000)
             try:
-                page.wait_for_selector("li.b_algo", timeout=60000)
+                await page.wait_for_selector("li.b_algo", timeout=60000)
             except TimeoutError:
                 logger.error("查找选择器 'li.b_algo' 超时")
+                await browser.close()
                 return []
 
             items = await page.query_selector_all("li.b_algo")
