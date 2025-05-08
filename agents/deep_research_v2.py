@@ -18,6 +18,7 @@ from modules.toolkits.firecrawl_serve import FirecrawlService
 load_dotenv()
 T = TypeVar("T", bound=BaseModel)
 CONCURRENCY_LIMIT = int(os.environ.get("FIRECRAWL_CONCURRENCY", 50))
+TASK_DONE = "__DONE__"
 # endregion
 
 # region 配置提示词
@@ -322,6 +323,7 @@ class DeepResearchAgent:
         learnings: Optional[List[str]] = None,
         visited_urls: Optional[List[str]] = None,
         progress_callback: Optional[Callable[[ResearchProgress], None]] = None,
+        queue: Optional[asyncio.Queue[str]] = None,
     ) -> ResearchResult:
         progress = ResearchProgress(
             current_depth=depth,
@@ -329,6 +331,11 @@ class DeepResearchAgent:
             current_breadth=breadth,
             total_breadth=breadth,
         )
+
+        async def log(msg: str):
+            logger.info(msg)
+            if queue:
+                await queue.put(msg)
 
         async def update_progress(**kwargs):
             nonlocal progress
@@ -338,8 +345,8 @@ class DeepResearchAgent:
                 progress_callback(progress)
 
         async def process_query(serp_query: SerpQuery):
-            logger.info(
-                f"Processing SERP query: {serp_query.query}, research goal: {serp_query.research_goal}"
+            await log(
+                f"SERP查询: {serp_query.query}\n研究目标: {serp_query.research_goal}"
             )
             async with self.semaphore:
                 await update_progress(current_query=serp_query.query)
@@ -354,8 +361,8 @@ class DeepResearchAgent:
                             # "timeout": 150
                         },
                     )
-                    logger.info(f"Search result: {search_result}")
-                    logger.info(
+                    await log(f"研究结果: {search_result}")
+                    await log(
                         f"查询[{serp_query.query}]结果：{len(search_result.data or [])}条"
                     )
                     tasks = [
@@ -367,7 +374,8 @@ class DeepResearchAgent:
                     ]
 
                     contents = await asyncio.gather(*tasks)
-                    logger.info(f"Process page completed: {contents}")
+                    contents = list(filter(None, contents))
+                    await log(f"页面信息处理完成: {contents}")
                     analysis_result = await self.process_serp_result(
                         serp_query.query, contents
                     )
@@ -379,14 +387,15 @@ class DeepResearchAgent:
                     all_learnings = list(
                         set((learnings or []) + analysis_result.learnings)
                     )
-                    logger.info(f"Related urls: {all_urls}")
-                    logger.info(f"Process serp result completed: {analysis_result}")
+                    await log(f"引用网址: {all_urls}")
+                    await log(f"处理SERP结果完成: {analysis_result}")
 
                     if depth > 1:
                         next_query = f"""
-                        Previous research goal: {serp_query.research_goal}
-                        Follow-up research directions: {chr(10).join(analysis_result.follow_up_questions)}
+                        前期研究目标: {serp_query.research_goal}
+                        后续研究方向: {chr(10).join(analysis_result.follow_up_questions)}
                         """.strip()
+                        await log(f"开启下一阶段的研究...\n{next_query}")
 
                         return await self.deep_research(
                             query=next_query,
@@ -395,13 +404,14 @@ class DeepResearchAgent:
                             learnings=all_learnings,
                             visited_urls=all_urls,
                             progress_callback=progress_callback,
+                            queue=queue,
                         )
 
                     await update_progress(
                         completed_queries=progress.completed_queries + 1,
                         current_depth=0,
                     )
-                    logger.info(
+                    await log(
                         f"查询[{serp_query.query}]完成，获得{len(all_learnings)}个学习结果"
                     )
                     return ResearchResult(
@@ -409,63 +419,84 @@ class DeepResearchAgent:
                     )
 
                 except Exception as e:
-                    logger.info(f"查询[{serp_query.query}]错误：{str(e)}")
+                    await log(f"查询[{serp_query.query}]错误：{str(e)}")
                     return ResearchResult(learnings=[], visited_urls=[])
 
         queries = await self.generate_serp_queries(query, breadth, learnings)
         await update_progress(total_queries=len(queries))
 
         results = await asyncio.gather(*[process_query(q) for q in queries])
-        print(results)
         return ResearchResult(
             learnings=list({l for r in results for l in r.learnings}),
             visited_urls=list({u for r in results for u in r.visited_urls}),
         )
 
-    async def run(self, initial_query: str, breadth=4, depth=2, is_report=True) -> str:
-        logger.info("Creating research plan...")
+    async def run(
+        self,
+        initial_query: str,
+        breadth=4,
+        depth=2,
+        is_report=True,
+        queue: Optional[asyncio.Queue[str]] = None,
+    ) -> str:
+        try:
 
-        # Generate follow-up questions
-        feedback_result = await self.generate_feedback_queries(query=initial_query)
+            async def log(msg: str):
+                logger.info(msg)
+                if queue:
+                    await queue.put(msg)
 
-        logger.info(
-            "To better understand your research needs, please answer these follow-up questions:"
-        )
-        logger.info(chr(10).join(f"- {q}" for q in feedback_result.questions))
+            await log("准备中...")
 
-        # Collect answers to follow-up questions
-        follow_up_questions_str = ""
-        for question in feedback_result.questions:
-            answer = await self.waitting_for_feedback(question)
-            if not answer:
-                continue
-            follow_up_questions_str += f"Q: {question}\nA: {answer}\n"
+            # Generate follow-up questions
+            feedback_result = await self.generate_feedback_queries(query=initial_query)
 
-        # Combine all information for deep research
-        follow_up_questions_str = (
-            "Follow-up Questions and Answers:" + follow_up_questions_str
-            if follow_up_questions_str
-            else ""
-        )
-        combined_query = f"Initial Query: {initial_query}\n{follow_up_questions_str}"
+            await log("为更好地了解您的研究需求，请回答以下后续问题：")
 
-        logger.info("Starting research...")
+            # Collect answers to follow-up questions
+            follow_up_questions_str = ""
+            for index, question in enumerate(feedback_result.questions):
+                await log(f"{index + 1}. {question}")
+                answer = await self.waitting_for_feedback(question)
+                if not answer:
+                    continue
+                follow_up_questions_str += f"Q: {question}\nA: {answer}\n"
 
-        research_result = await self.deep_research(
-            query=combined_query, breadth=breadth, depth=depth
-        )
-        logger.info("Research completed.")
-        logger.info(f"Total learnings: {len(research_result.learnings)}")
-        logger.info(f"Total visited URLs: {len(research_result.visited_urls)}")
-        learnings = research_result.learnings
-
-        if is_report:
-            final_result = await self.write_final_report(
-                combined_query, learnings, research_result.visited_urls
+            # Combine all information for deep research
+            follow_up_questions_str = (
+                "Follow-up Questions and Answers:" + follow_up_questions_str
+                if follow_up_questions_str
+                else ""
             )
-        else:
-            final_result = await self.write_final_answer(combined_query, learnings)
-        return final_result
+            combined_query = (
+                f"Initial Query: {initial_query}\n{follow_up_questions_str}"
+            )
+
+            await log("开启深度思考...")
+
+            research_result = await self.deep_research(
+                query=combined_query, breadth=breadth, depth=depth, queue=queue
+            )
+            await log("Research completed.")
+            await log(f"Total learnings: {len(research_result.learnings)}")
+            await log(f"Total visited URLs: {len(research_result.visited_urls)}")
+            learnings = research_result.learnings
+
+            if is_report:
+                final_result = await self.write_final_report(
+                    combined_query, learnings, research_result.visited_urls
+                )
+            else:
+                final_result = await self.write_final_answer(combined_query, learnings)
+            await log(TASK_DONE)
+            return final_result
+        except Exception as e:
+            if queue:
+                await queue.put(f"Error in research process: {str(e)}")
+            raise
+        finally:
+            if queue:
+                await queue.put(TASK_DONE)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 from retry import retry
 from llama_index.core.bridge.pydantic import Field, PrivateAttr
+from llama_index.core.base.llms.types import MessageRole, ChatMessage
 from llama_index.llms.openai_like import OpenAILike
 
 
@@ -50,6 +51,24 @@ async def execute_completion_async(
     llm = RenDuLLM(system_prompt=system, is_chat_model=True, **llm_config)
     full_prompt = f"{system or ''}\n{prompt or ''}"
     response = await llm.acomplete(full_prompt)
+    if not response:
+        raise Exception("LLM response is empty")
+    return response
+
+
+@retry(tries=3, delay=2, backoff=2)
+async def execute_chat_async(
+    messages: list,
+    response_model: type = None,
+    llm_config: dict = None,
+    streaming: bool = False,
+):
+    llm = RenDuLLM(is_chat_model=True, **llm_config)
+    format_messages = []
+    for index, message in enumerate(messages):
+        role = MessageRole.USER if index == 0 else MessageRole.SYSTEM
+        format_messages.append(ChatMessage(role=role, content=message))
+    response = await llm.achat(format_messages)
     if not response:
         raise Exception("LLM response is empty")
     return response

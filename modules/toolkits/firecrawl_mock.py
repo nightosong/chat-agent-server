@@ -27,7 +27,7 @@ class FirecrawlMock:
         country: str = "us",
         proxy: str = None,
         sleep_interval: float = 0,
-        timeout: int = 15,
+        timeout: int = 60,
     ) -> SearchResponse:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -111,10 +111,6 @@ class FirecrawlMock:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=False)
             page = browser.new_page()
-            page.goto()
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=False)
-            page = browser.new_page()
 
             page.goto(
                 f"https://www.bing.com/search?q={query}",
@@ -144,12 +140,12 @@ class FirecrawlMock:
         country: str = "us",
         proxy: str = None,
         sleep_interval: float = 0,
-        timeout: int = 15,
+        timeout: int = 60,
         **kwargs,
     ) -> List[Dict[str, Any]]:
         results = []
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=False)
+            browser = await pw.chromium.launch(headless=True)
             page = await browser.new_page()
             await page.goto(
                 f"https://www.bing.com/search?q={query}",
