@@ -150,9 +150,14 @@ class SummaryStateOutput:
 
 
 class DeepResearchAgent:
-    def __init__(self, llm_config=None):
+    def __init__(self):
         self.max_web_research_loops = 5
-        self.llm_config = llm_config
+        self.llm_config = {
+            "model": os.getenv("CHAT_MODEL_NAME"),
+            "api_key": os.getenv("CHAT_MODEL_API_KEY"),
+            "api_base": os.getenv("CHAT_MODEL_BASE_URL"),
+            "timeout": 600,
+        }
         self.state = SummaryState()
 
     async def generate_query(self):
@@ -260,13 +265,7 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
 
     load_dotenv()
-    llm_config = {
-        "model": os.getenv("CHAT_MODEL_NAME"),
-        "api_key": os.getenv("CHAT_MODEL_API_KEY"),
-        "api_base": os.getenv("CHAT_MODEL_BASE_URL"),
-        "timeout": 600,
-    }
-    agent = DeepResearchAgent(llm_config=llm_config)
+    agent = DeepResearchAgent()
     result = asyncio.run(
         agent.run(
             research_topic="What are the latest developments in AI?",

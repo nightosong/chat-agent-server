@@ -186,6 +186,12 @@ class ExactAnswer(BaseModel):
 class DeepResearchAgent:
     def __init__(self):
         self.semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
+        self.llm_config = {
+            "model": os.getenv("CHAT_MODEL_NAME"),
+            "api_key": os.getenv("CHAT_MODEL_API_KEY"),
+            "api_base": os.getenv("CHAT_MODEL_BASE_URL"),
+            "timeout": 600,
+        }
 
     @property
     def system_prompt(self) -> str:
@@ -197,12 +203,6 @@ class DeepResearchAgent:
     async def generate_object(
         self, prompt: str, response_model: Type[T]
     ) -> Union[T, List[T]]:
-        llm_config = {
-            "model": os.getenv("CHAT_MODEL_NAME"),
-            "api_key": os.getenv("CHAT_MODEL_API_KEY"),
-            "api_base": os.getenv("CHAT_MODEL_BASE_URL"),
-            "timeout": 600,
-        }
         retries = 3
         for attempt in range(retries):
             try:
@@ -210,7 +210,7 @@ class DeepResearchAgent:
                     system=self.system_prompt,
                     prompt=prompt,
                     response_model=response_model,
-                    llm_config=llm_config,
+                    llm_config=self.llm_config,
                 )
                 if not response.text:
                     raise ValueError("Empty response from LLM")
@@ -260,15 +260,9 @@ class DeepResearchAgent:
     async def process_page_content(self, markdown_content: str) -> str:
         # 编写调用 LLM 的 prompt
         prompt = f"""请对以下 Markdown 内容进行精炼清洗，去除杂乱的符号，并提取内容摘要，确保不遗漏重要信息：\n{markdown_content}"""
-        llm_config = {
-            "model": os.getenv("CHAT_MODEL_NAME"),
-            "api_key": os.getenv("CHAT_MODEL_API_KEY"),
-            "api_base": os.getenv("CHAT_MODEL_BASE_URL"),
-            "timeout": 600,
-        }
         # 调用 LLM 进行处理
         response = await execute_completion_async(
-            "", prompt=prompt, response_model=str, llm_config=llm_config
+            "", prompt=prompt, response_model=str, llm_config=self.llm_config
         )
 
         return response.text

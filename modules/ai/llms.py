@@ -7,6 +7,19 @@ from llama_index.llms.openai_like import OpenAILike
 CHAT_MODELS = [
     "rendu-latest",
 ]
+INTENTION_REFERENCE_PROMPT = """
+你是一个专业的市场研究分析师，负责判断用户的问题属于哪种研究需求。用户可能提出一个主题、一个问题，或两者结合。
+
+你的任务是：
+
+1. 判断用户的问题是**发散型**（需要广泛查找资料、多角度分析）还是**聚焦型**（寻求具体、明确答案）。
+2. 如果是发散型，返回 `2`（适合使用 v2 版本）。
+3. 如果是聚焦型，返回 `3`（适合使用 v3 版本）。
+4. 只返回一个数字：`2` 或 `3`，不附带解释。
+
+用户的问题是：
+{query}
+"""
 
 
 class RenDuLLM(OpenAILike):
@@ -72,6 +85,20 @@ async def execute_chat_async(
     if not response:
         raise Exception("LLM response is empty")
     return response
+
+
+@retry(tries=3, delay=2, backoff=2)
+async def execute_intention_reference_async(
+    prompt: str,
+    response_model: type = None,
+    llm_config: dict = None,
+):
+    llm = RenDuLLM(system_prompt="", is_chat_model=True, **llm_config)
+    full_prompt = INTENTION_REFERENCE_PROMPT.format(query=prompt)
+    response = await llm.acomplete(full_prompt)
+    if not response:
+        raise Exception("LLM response is empty")
+    return response_model(response.text)
 
 
 if __name__ == "__main__":
