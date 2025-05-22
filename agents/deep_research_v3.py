@@ -2,13 +2,15 @@ import os
 import json
 import asyncio
 import operator
+import queue
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union, Annotated
 from modules.ai.llms import execute_completion, execute_completion_async
 from modules.toolkits.firecrawl_mock import FirecrawlMock
+from modules.loggers import logger
 
-
+TASK_DONE = "__DONE__"
 # region 提示词
 QUERY_WRITER_INSTRUCTIONS = """Your goal is to generate a targeted web search query.
 
@@ -189,7 +191,6 @@ class DeepResearchAgent:
                 # "timeout": 150
             },
         )
-        print(search_results)
         self.state.sources_gathered = [format_sources(search_results.data)]
         self.state.research_loop_count += 1
         self.state.web_research_results = [format_search_results(search_results.data)]
@@ -225,12 +226,17 @@ class DeepResearchAgent:
             llm_config=self.llm_config,
         )
         try:
-            reflection_content: dict = json.loads(response.text)
+            response_text: str = str(response.text).strip()
+            if response_text.startswith("```json"):
+                response_text = response_text.strip("```json").strip("```").strip()
+            reflection_content: dict = json.loads(response_text)
             query = reflection_content.get("follow_up_query")
             if not query:
                 self.state.search_query = (
                     f"Tell me more about {self.state.research_topic}"
                 )
+                # self.state.search_query = None
+                # self.state.research_loop_count = self.max_web_research_loops
             else:
                 self.state.search_query = query
         except (json.JSONDecodeError, KeyError, AttributeError):
@@ -248,17 +254,38 @@ class DeepResearchAgent:
         self.state.running_summary = (
             f"## Summary\n{self.state.running_summary}\n\n ### Sources:\n{all_sources}"
         )
+        logger.info(f"Final Summary: {self.state.running_summary}")
 
-    async def run(self, research_topic, max_loop_count=5):
-        self.max_web_research_loops = max_loop_count
-        self.state.research_topic = research_topic
-        await self.generate_query()
-        while self.state.research_loop_count <= self.max_web_research_loops:
-            await self.web_research()
-            await self.summarize_sources()
-            await self.reflect_on_summary()
-        self.finalize_summary()
-        return SummaryStateOutput(running_summary=self.state.running_summary)
+    async def run(
+        self,
+        research_topic,
+        max_loop_count=5,
+        queue: Optional[asyncio.Queue[str]] = None,
+    ):
+        try:
+            self.max_web_research_loops = max_loop_count
+            self.state.research_topic = research_topic
+            await self.generate_query()
+            if queue:
+                await queue.put(self.state.search_query)
+            while self.state.research_loop_count <= self.max_web_research_loops:
+                await self.web_research()
+                if queue:
+                    await queue.put(self.state.sources_gathered)
+                await self.summarize_sources()
+                if queue:
+                    await queue.put(self.state.running_summary)
+                await self.reflect_on_summary()
+                if queue:
+                    await queue.put(self.state.search_query)
+            self.finalize_summary()
+            await queue.put(self.state.running_summary)
+        except Exception as e:
+            logger.error(f"DeepResearchAgent run error: {e}")
+            if queue:
+                await queue.put(f"DeepResearchAgent run error: {e}")
+        if queue:
+            await queue.put(TASK_DONE)
 
 
 if __name__ == "__main__":

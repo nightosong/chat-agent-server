@@ -1,3 +1,4 @@
+import os
 from retry import retry
 from llama_index.core.bridge.pydantic import Field, PrivateAttr
 from llama_index.core.base.llms.types import MessageRole, ChatMessage
@@ -16,6 +17,29 @@ INTENTION_REFERENCE_PROMPT = """
 2. 如果是发散型，返回 `2`（适合使用 v2 版本）。
 3. 如果是聚焦型，返回 `3`（适合使用 v3 版本）。
 4. 只返回一个数字：`2` 或 `3`，不附带解释。
+
+参考示例：
+--- 
+用户输入：
+    当前AIGC内容平台有哪些典型的商业模式？它们未来的发展趋势如何？
+输出：
+    2
+---
+用户输入：
+    如何评估一家公司的市场规模和市场地位？
+输出：
+    2
+---
+用户输入：
+    ChatGPT现在支持联网搜索了吗？
+输出：
+    3
+---
+用户输入：
+    Sora的视频生成速度有多快？
+输出：
+    3
+---
 
 用户的问题是：
 {query}
@@ -93,6 +117,13 @@ async def execute_intention_reference_async(
     response_model: type = None,
     llm_config: dict = None,
 ):
+    if not llm_config:
+        llm_config = {
+            "model": os.getenv("CHAT_MODEL_NAME"),
+            "api_key": os.getenv("CHAT_MODEL_API_KEY"),
+            "api_base": os.getenv("CHAT_MODEL_BASE_URL"),
+            "timeout": 600,
+        }
     llm = RenDuLLM(system_prompt="", is_chat_model=True, **llm_config)
     full_prompt = INTENTION_REFERENCE_PROMPT.format(query=prompt)
     response = await llm.acomplete(full_prompt)
@@ -102,11 +133,12 @@ async def execute_intention_reference_async(
 
 
 if __name__ == "__main__":
-    llm = RenDuLLM(
-        model="rendu-latest",
-        api_key="ba48c211bb384fb6a9ecba7636b6ff7f",
-        api_base="http://120.133.68.84:8598/v2",
-        is_chat_model=True,
-    )
+    llm_config = {
+        "model": os.getenv("CHAT_MODEL_NAME"),
+        "api_key": os.getenv("CHAT_MODEL_API_KEY"),
+        "api_base": os.getenv("CHAT_MODEL_BASE_URL"),
+        "timeout": 600,
+    }
+    llm = RenDuLLM(**llm_config)
     response = llm.complete("你好，1+1等于几")
     print(response)

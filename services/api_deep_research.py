@@ -32,7 +32,7 @@ async def deep_research_api(request: ResearchRequest):
                 agent_v2.run(query, breadth, depth, is_report, queue)
             )
         else:
-            task = asyncio.create_task(agent_v3.run(query, depth))
+            task = asyncio.create_task(agent_v3.run(query, depth, queue))
         while True:
             msg = await asyncio.wait_for(queue.get(), timeout=600)
             if msg == TASK_DONE:

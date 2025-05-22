@@ -35,4 +35,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     logger.info(f"应用将在 {args.host}:{args.port} 启动")
-    uvicorn.run(app, host=args.host, port=args.port, reload=True)
+    uvicorn.run(app, host=args.host, port=args.port)
