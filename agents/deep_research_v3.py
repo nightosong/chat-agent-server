@@ -5,7 +5,7 @@ import operator
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union, Annotated
-from modules.ai.llms import execute_completion_async
+from modules.ai.llms import execute_completion, execute_completion_async
 from modules.toolkits.firecrawl_mock import FirecrawlMock
 
 
@@ -103,16 +103,15 @@ def get_current_date():
     return datetime.now().strftime("%B %d, %Y")
 
 
-def format_sources(search_results: Dict[str, Any]) -> str:
+def format_sources(search_results: List[Dict[str, Any]]) -> str:
     return "\n".join(
-        f"* {source['title']} : {source['url']}"
-        for source in search_results["description"]
+        f"* {source['title']} : {source['url']}" for source in search_results
     )
 
 
-def format_search_results(search_results: Dict[str, Any]) -> str:
+def format_search_results(search_results: List[Dict[str, Any]]) -> str:
     formatted_text = "Sources:\n\n"
-    for i, source in enumerate(search_results):
+    for _, source in enumerate(search_results):
         formatted_text += f"Source: {source['title']}\n===\n"
         formatted_text += f"URL: {source['url']}\n===\n"
         formatted_text += (
@@ -151,9 +150,9 @@ class SummaryStateOutput:
 
 
 class DeepResearchAgent:
-    def __init__(self, config):
+    def __init__(self, llm_config=None):
         self.max_web_research_loops = 5
-        self.config = config
+        self.llm_config = llm_config
         self.state = SummaryState()
 
     async def generate_query(self):
@@ -161,17 +160,11 @@ class DeepResearchAgent:
         formatted_prompt = QUERY_WRITER_INSTRUCTIONS.format(
             current_date=current_date, research_topic=self.state.research_topic
         )
-        llm_config = {
-            "model": os.getenv("CHAT_MODEL_NAME"),
-            "api_key": os.getenv("CHAT_MODEL_API_KEY"),
-            "api_base": os.getenv("CHAT_MODEL_BASE_URL"),
-            "timeout": 600,
-        }
         result = await execute_completion_async(
             system=formatted_prompt,
             prompt="Generate a query for web search:",
             response_model=dict,
-            llm_config=llm_config,
+            llm_config=self.llm_config,
         )
         content = result.text
         try:
@@ -191,11 +184,12 @@ class DeepResearchAgent:
                 # "timeout": 150
             },
         )
-        self.state.sources_gathered = [format_sources(search_results)]
+        print(search_results)
+        self.state.sources_gathered = [format_sources(search_results.data)]
         self.state.research_loop_count += 1
-        self.state.web_research_results = [format_search_results(search_results)]
+        self.state.web_research_results = [format_search_results(search_results.data)]
 
-    def summarize_sources(self):
+    async def summarize_sources(self):
         existing_summary = self.state.running_summary
         most_recent_web_research = self.state.web_research_results[-1]
         if existing_summary:
@@ -209,43 +203,24 @@ class DeepResearchAgent:
                 f"<Context> \n {most_recent_web_research} \n <Context>"
                 f"Create a Summary using the Context on this topic: \n <User Input> \n {self.state.research_topic} \n <User Input>\n\n"
             )
-        llm = ChatOllama(
-            base_url=self.config.ollama_base_url,
-            model=self.config.local_llm,
-            temperature=0,
+        response = await execute_completion_async(
+            SUMMARIZER_INSTRUCTIONS, human_message_content, llm_config=self.llm_config
         )
-        result = llm.invoke(
-            [
-                SystemMessage(content=SUMMARIZER_INSTRUCTIONS),
-                HumanMessage(content=human_message_content),
-            ]
-        )
-        running_summary = result.content
-        if self.config.strip_thinking_tokens:
+
+        running_summary = response.text
+        # if self.config.strip_thinking_tokens:
+        if True:
             running_summary = strip_thinking_tokens(running_summary)
         self.state.running_summary = running_summary
 
-    def reflect_on_summary(self):
-        llm_json_mode = ChatOllama(
-            base_url=self.config.ollama_base_url,
-            model=self.config.local_llm,
-            temperature=0,
-            format="json",
-        )
-        result = llm_json_mode.invoke(
-            [
-                SystemMessage(
-                    content=REFLECTION_INSTRUCTIONS.format(
-                        research_topic=self.state.research_topic
-                    )
-                ),
-                HumanMessage(
-                    content=f"Reflect on our existing knowledge: \n === \n {self.state.running_summary}, \n === \n And now identify a knowledge gap and generate a follow-up web search query:"
-                ),
-            ]
+    async def reflect_on_summary(self):
+        response = await execute_completion_async(
+            REFLECTION_INSTRUCTIONS.format(research_topic=self.state.research_topic),
+            f"Reflect on our existing knowledge: \n === \n {self.state.running_summary}, \n === \n And now identify a knowledge gap and generate a follow-up web search query:",
+            llm_config=self.llm_config,
         )
         try:
-            reflection_content = json.loads(result.content)
+            reflection_content: dict = json.loads(response.text)
             query = reflection_content.get("follow_up_query")
             if not query:
                 self.state.search_query = (
@@ -269,25 +244,33 @@ class DeepResearchAgent:
             f"## Summary\n{self.state.running_summary}\n\n ### Sources:\n{all_sources}"
         )
 
-    def run(self, research_topic):
+    async def run(self, research_topic, max_loop_count=5):
+        self.max_web_research_loops = max_loop_count
         self.state.research_topic = research_topic
-        self.generate_query()
+        await self.generate_query()
         while self.state.research_loop_count <= self.max_web_research_loops:
-            self.web_research()
-            self.summarize_sources()
-            self.reflect_on_summary()
+            await self.web_research()
+            await self.summarize_sources()
+            await self.reflect_on_summary()
         self.finalize_summary()
         return SummaryStateOutput(running_summary=self.state.running_summary)
 
 
 if __name__ == "__main__":
-    agent = DeepResearchAgent()
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    llm_config = {
+        "model": os.getenv("CHAT_MODEL_NAME"),
+        "api_key": os.getenv("CHAT_MODEL_API_KEY"),
+        "api_base": os.getenv("CHAT_MODEL_BASE_URL"),
+        "timeout": 600,
+    }
+    agent = DeepResearchAgent(llm_config=llm_config)
     result = asyncio.run(
         agent.run(
-            initial_query="What are the latest developments in AI?",
-            breadth=4,
-            depth=2,
-            is_report=True,
+            research_topic="What are the latest developments in AI?",
+            max_loop_count=5,
         )
     )
     print(result)
