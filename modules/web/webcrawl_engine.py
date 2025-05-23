@@ -1,9 +1,10 @@
 import os
 import json
-from dotenv import load_dotenv
+from typing import List
 from firecrawl import FirecrawlApp
 from modules.ai.llms import execute_completion, execute_completion_async
 from modules.loggers import logger
+from modules.web.base_engine import SearchResult, SearchEngine
 
 # region 配置提示词
 MAP_PROMPT = """
@@ -89,11 +90,8 @@ class Colors:
     RESET = "\033[0m"
 
 
-class WebCrawler:
+class WebCrawlEngine(SearchEngine):
     def __init__(self):
-        # Load environment variables
-        load_dotenv()
-
         # Retrieve API keys from environment variables
         self.firecrawl_base_url = os.getenv("FIRECRAWL_BASE_URL")
         self.claude_api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -333,10 +331,18 @@ class WebCrawler:
             logger.info(
                 f"{Colors.RED}No relevant pages identified. Consider refining the search parameters or trying a different website.{Colors.RESET}"
             )
+            result = []
+        return result
+
+    def search(self, query: str, params=None, **kwargs) -> List[SearchResult]:
+        raise NotImplementedError
+
+    async def search_async(self, query: str, params=None, **kwargs):
+        raise NotImplementedError
 
 
 if __name__ == "__main__":
     url = "https://www.chinanews.com.cn/"
     objective = "查找下中国最近的新闻或者外交政策"
-    crawler = WebCrawler()
+    crawler = WebCrawlEngine()
     crawler.run(url, objective)

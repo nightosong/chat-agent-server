@@ -1,14 +1,14 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from modules.toolkits.firecrawl_serve import FirecrawlService
+from modules.toolkits.firecrawl_serve import FirecrawlEngine
 
 
 @pytest.fixture
-def firecrawl_service() -> FirecrawlService:
-    return FirecrawlService(api_url="http://fake-api/firecrawl")
+def firecrawl_service() -> FirecrawlEngine:
+    return FirecrawlEngine(api_url="http://fake-api/firecrawl")
 
 
-def test_scrape_success(firecrawl_service: FirecrawlService):
+def test_scrape_success(firecrawl_service: FirecrawlEngine):
     fake_response = {"content": "some markdown content"}
 
     with patch.object(
@@ -20,7 +20,7 @@ def test_scrape_success(firecrawl_service: FirecrawlService):
         assert result == fake_response
 
 
-def test_crawl_success(firecrawl_service: FirecrawlService):
+def test_crawl_success(firecrawl_service: FirecrawlEngine):
     fake_response = {"results": ["page1", "page2"]}
 
     with patch.object(

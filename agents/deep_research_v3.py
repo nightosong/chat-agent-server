@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union, Annotated
 from modules.ai.llms import execute_completion, execute_completion_async
-from modules.toolkits.firecrawl_mock import FirecrawlMock
+from modules.web.base_engine import SearchEngine, SearchResult
 from modules.loggers import logger
 
 TASK_DONE = "__DONE__"
@@ -98,26 +98,22 @@ Reflect carefully on the Summary to identify knowledge gaps and produce a follow
 Provide your analysis in JSON format:"""
 # endregion
 
-firecrawl = FirecrawlMock()
-
 
 def get_current_date():
     return datetime.now().strftime("%B %d, %Y")
 
 
-def format_sources(search_results: List[Dict[str, Any]]) -> str:
-    return "\n".join(
-        f"* {source['title']} : {source['url']}" for source in search_results
-    )
+def format_sources(search_results: List[SearchResult]) -> str:
+    return "\n".join(f"* {source.title} : {source.url}" for source in search_results)
 
 
-def format_search_results(search_results: List[Dict[str, Any]]) -> str:
+def format_search_results(search_results: List[SearchResult]) -> str:
     formatted_text = "Sources:\n\n"
     for _, source in enumerate(search_results):
-        formatted_text += f"Source: {source['title']}\n===\n"
-        formatted_text += f"URL: {source['url']}\n===\n"
+        formatted_text += f"Source: {source.title}\n===\n"
+        formatted_text += f"URL: {source.url}\n===\n"
         formatted_text += (
-            f"Most relevant content from source: {source['description']}\n===\n"
+            f"Most relevant content from source: {source.description}\n===\n"
         )
 
     return formatted_text.strip()
@@ -152,7 +148,8 @@ class SummaryStateOutput:
 
 
 class DeepResearchAgent:
-    def __init__(self):
+    def __init__(self, search_engine: SearchEngine = None):
+        self.search_engine = search_engine or SearchEngine()
         self.max_web_research_loops = 5
         self.llm_config = {
             "model": os.getenv("CHAT_MODEL_NAME"),
@@ -183,17 +180,10 @@ class DeepResearchAgent:
         self.state.search_query = search_query
 
     async def web_research(self):
-        search_results = await firecrawl.search_async(
-            self.state.search_query,
-            params={
-                "limit": 5,
-                "scrape_options": {"formats": ["markdown"]},
-                # "timeout": 150
-            },
-        )
-        self.state.sources_gathered = [format_sources(search_results.data)]
+        search_results = await self.search_engine.search_async(self.state.search_query)
+        self.state.sources_gathered = [format_sources(search_results)]
         self.state.research_loop_count += 1
-        self.state.web_research_results = [format_search_results(search_results.data)]
+        self.state.web_research_results = [format_search_results(search_results)]
 
     async def summarize_sources(self):
         existing_summary = self.state.running_summary

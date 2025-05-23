@@ -11,8 +11,7 @@ from pydantic import BaseModel, Field
 from requests.models import Response
 from modules.ai.llms import execute_completion_async
 from modules.loggers import logger
-from modules.toolkits.firecrawl_mock import FirecrawlMock
-from modules.toolkits.firecrawl_serve import FirecrawlService
+from modules.web.base_engine import SearchResult, SearchEngine
 
 # region 配置常量及类型
 load_dotenv()
@@ -139,10 +138,6 @@ You must return the result strictly as a JSON array matching the following schem
 """
 # endregion
 
-# 初始化FirecrawlApp
-# firecrawl = FirecrawlService(api_url=os.environ.get("FIRECRAWL_BASE_URL"))
-firecrawl = FirecrawlMock()
-
 
 @dataclass
 class ResearchProgress:
@@ -184,7 +179,8 @@ class ExactAnswer(BaseModel):
 
 
 class DeepResearchAgent:
-    def __init__(self):
+    def __init__(self, search_engine: SearchEngine = None):
+        self.search_engine = search_engine or SearchEngine()
         self.semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
         self.llm_config = {
             "model": os.getenv("CHAT_MODEL_NAME"),
@@ -346,25 +342,18 @@ class DeepResearchAgent:
                 await update_progress(current_query=serp_query.query)
 
                 try:
-                    await asyncio.sleep(random.uniform(0.5, 1.5))
-                    search_result = await firecrawl.search_async(
-                        serp_query.query,
-                        params={
-                            "limit": 5,
-                            "scrape_options": {"formats": ["markdown"]},
-                            # "timeout": 150
-                        },
+                    await asyncio.sleep(random.uniform(0.5, 1.0))
+                    search_result = await self.search_engine.search_async(
+                        serp_query.query
                     )
                     await log(f"研究结果: {search_result}")
                     await log(
-                        f"查询[{serp_query.query}]结果：{len(search_result.data or [])}条"
+                        f"查询[{serp_query.query}]结果：{len(search_result or [])}条"
                     )
                     tasks = [
-                        asyncio.create_task(
-                            self.process_page_content(item["description"])
-                        )
-                        for item in search_result.data
-                        if item["description"]
+                        asyncio.create_task(self.process_page_content(item.description))
+                        for item in search_result
+                        if item.description
                     ]
 
                     contents = await asyncio.gather(*tasks)
@@ -374,9 +363,7 @@ class DeepResearchAgent:
                         serp_query.query, contents
                     )
 
-                    new_urls = [
-                        item["url"] for item in search_result.data if item["url"]
-                    ]
+                    new_urls = [item.url for item in search_result if item.url]
                     all_urls = list(set(new_urls + (visited_urls or [])))
                     all_learnings = list(
                         set((learnings or []) + analysis_result.learnings)

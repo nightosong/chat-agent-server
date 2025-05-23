@@ -1,16 +1,15 @@
-import time
-import httpx
-import requests
-import asyncio
+import os
 import urllib.parse
+from typing import List, override
 
 from firecrawl.firecrawl import FirecrawlApp, AsyncFirecrawlApp, ScrapeOptions
 from modules.loggers import logger
+from modules.web.base_engine import SearchResult, SearchEngine
 
 
-class FirecrawlService:
-    def __init__(self, api_url, https_proxy=None):
-        self.api_url = api_url
+class FirecrawlEngine(SearchEngine):
+    def __init__(self, https_proxy=None):
+        self.api_url = os.getenv("FIRECRAWL_BASE_URL")
         self.https_proxy = https_proxy
         self.app = FirecrawlApp(api_url=self.api_url)
         self.app_async = AsyncFirecrawlApp(api_url=self.api_url)
@@ -65,7 +64,8 @@ class FirecrawlService:
         logger.info(f"search url: {search_url}")
         return await self.crawl_async(search_url)
 
-    def search(self, query: str, params=None):
+    @override
+    def search(self, query: str, params=None) -> List[SearchResult]:
         """搜索"""
         if not params:
             params = {
@@ -74,9 +74,13 @@ class FirecrawlService:
                 "timeout": 15000,
             }
         params["scrape_options"] = ScrapeOptions(**params["scrape_options"])
-        return self.app.search(query, **params)
+        response = self.app.search(query, **params)
+        if response.success:
+            return [SearchResult(**result) for result in response.data]
+        return []
 
-    async def search_async(self, query, params=None):
+    @override
+    async def search_async(self, query, params=None) -> List[SearchResult]:
         """异步搜索"""
         if not params:
             params = {
@@ -85,42 +89,24 @@ class FirecrawlService:
                 "timeout": 15000,
             }
         params["scrape_options"] = ScrapeOptions(**params["scrape_options"])
-        print(query)
-        return await self.app_async.search(query, **params)
+        response = await self.app_async.search(query, **params)
+        if response.success:
+            return [SearchResult(**result) for result in response.data]
+        return []
 
     def extract(self, urls, params=None):
         response = self.app.extract(urls, **params)
-        print(response)
         return response
 
     async def extract_async(self, urls, params=None):
         response = await self.app_async.async_extract(urls, **params)
-        print(response)
+        return response
 
 
 if __name__ == "__main__":
-    api_url = "http://192.168.0.101:3002"
-    service = FirecrawlService(api_url=api_url)
-    # result = service.search("华为")
-    # print(result)
-    # result_async = loop.run_until_complete(service.search_async("华为"))
-    # print(result_async)
-    params = {
-        "prompt": "提取页面大致内容。",
-        "schema": {
-            "title": "NewsSchema",
-            "type": "object",
-            "properties": {
-                "title": {"type": "string"},
-                "by": {"type": "string"},
-                "content": {"type": "string"},
-            },
-            "required": ["title", "content"],
-        },
-    }
-    # urls = ["https://cn.bing.com/search?q=%E5%AE%9D%E9%A9%AC%E6%96%B0%E9%97%BB"]
-    # service.extract(urls, params)
-    url = "https://cn.bing.com/search?q=张杰 周杰伦"
-    result = service.scrape(url)
-    # result = service.bing_search("张杰 周杰伦")
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    engine = FirecrawlEngine()
+    result = engine.search("python")
     print(result)

@@ -1,24 +1,14 @@
 import time
 import requests
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-from dotenv import load_dotenv
+from typing import List, Dict, Any, override
 from lxml import html
-from firecrawl.firecrawl import SearchResponse
 from playwright.sync_api import sync_playwright
 from playwright.async_api import async_playwright
 from modules.loggers import logger
-
-load_dotenv()
-
-
-class SearchResult(BaseModel):
-    title: str = Field(description="The title of the search result")
-    description: str = Field(description="The description of the search result")
-    url: str = Field(description="The URL of the search result")
+from modules.web.base_engine import SearchResult, SearchEngine
 
 
-class FirecrawlMock:
+class PlaywrightEngine(SearchEngine):
     def bing_search(
         self,
         term: str,
@@ -28,7 +18,7 @@ class FirecrawlMock:
         proxy: str = None,
         sleep_interval: float = 0,
         timeout: int = 60,
-    ) -> SearchResponse:
+    ) -> List[SearchResult]:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
             "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
@@ -94,8 +84,7 @@ class FirecrawlMock:
             except Exception as e:
                 logger.error(f"Error during Bing search: {e}")
                 break
-        response = SearchResponse(success=True, data=results)
-        return response
+        return [SearchResult(**result) for result in results]
 
     def bing_search_playwright(
         self,
@@ -128,7 +117,9 @@ class FirecrawlMock:
                     title = title_elem.inner_text()
                     link = title_elem.get_attribute("href")
                     desc = desc_elem.inner_text()
-                    results.append({"title": title, "url": link, "description": desc})
+                    results.append(
+                        SearchResult(title=title, description=desc, url=link)
+                    )
             browser.close()
         return results
 
@@ -168,25 +159,29 @@ class FirecrawlMock:
                     title = await title_elem.inner_text()
                     link = await title_elem.get_attribute("href")
                     desc = await desc_elem.inner_text()
-                    results.append({"title": title, "url": link, "description": desc})
+                    results.append(
+                        SearchResult(title=title, description=desc, url=link)
+                    )
 
             await browser.close()
         return results
 
-    def search(self, query: str, params=None):
+    @override
+    def search(self, query: str, params=None) -> List[SearchResult]:
         if not params:
             params = {"num_results": 5, "lang": "en", "country": "us"}
         response = self.bing_search_playwright(query, **params)
-        return SearchResponse(success=True, data=response)
+        return response
 
-    async def search_async(self, query, params=None):
+    @override
+    async def search_async(self, query, params=None) -> List[SearchResult]:
         if not params:
             params = {"num_results": 5, "lang": "en", "country": "us"}
         response = await self.bing_search_playwright_async(query, **params)
-        return SearchResponse(success=True, data=response)
+        return response
 
 
 if __name__ == "__main__":
     # results = FirecrawlMock().search("2025-2030 AI颠覆性技术路线图")
-    results = FirecrawlMock().search("2025-2030 AI颠覆性技术路线图")
+    results = PlaywrightEngine().search("2025-2030 AI颠覆性技术路线图")
     print(results)
