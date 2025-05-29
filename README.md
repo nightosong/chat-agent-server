@@ -14,7 +14,7 @@ agents:
 
 modules:
     - ai: 包含AI相关的模块，如模型加载、推理等功能。
-    - web: 包含WebSearch相关的模块，探索多种网页搜索方式。
+    - search: 包含WebSearch相关的模块，探索多种网页搜索方式。
 
 services:
     - api_deep_research: 提供DeepResearch相关的API接口。

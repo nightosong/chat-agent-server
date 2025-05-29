@@ -4,7 +4,7 @@ from typing import List
 from firecrawl import FirecrawlApp
 from modules.ai.llms import execute_completion, execute_completion_async
 from modules.loggers import logger
-from modules.web.base_engine import SearchResult, SearchEngine
+from modules.search.base_engine import SearchResult, SearchEngine
 
 # region 配置提示词
 MAP_PROMPT = """

@@ -5,7 +5,7 @@ from lxml import html
 from playwright.sync_api import sync_playwright
 from playwright.async_api import async_playwright
 from modules.loggers import logger
-from modules.web.base_engine import SearchResult, SearchEngine
+from modules.search.base_engine import SearchResult, SearchEngine
 
 
 class PlaywrightEngine(SearchEngine):

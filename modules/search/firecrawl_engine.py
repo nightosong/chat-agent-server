@@ -4,7 +4,7 @@ from typing import List, override
 
 from firecrawl.firecrawl import FirecrawlApp, AsyncFirecrawlApp, ScrapeOptions
 from modules.loggers import logger
-from modules.web.base_engine import SearchResult, SearchEngine
+from modules.search.base_engine import SearchResult, SearchEngine
 
 
 class FirecrawlEngine(SearchEngine):

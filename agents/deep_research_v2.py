@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from requests.models import Response
 from modules.ai.llms import execute_completion_async
 from modules.loggers import logger
-from modules.web.base_engine import SearchResult, SearchEngine
+from modules.search.base_engine import SearchResult, SearchEngine
 
 # region 配置常量及类型
 load_dotenv()

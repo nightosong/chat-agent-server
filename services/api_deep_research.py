@@ -4,9 +4,9 @@ from fastapi import APIRouter, BackgroundTasks, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from modules.ai.llms import execute_intention_reference_async
-from modules.web.firecrawl_engine import FirecrawlEngine
-from modules.web.searxng_engine import SearxngEngine
-from modules.web.playwright_engine import PlaywrightEngine
+from modules.search.firecrawl_engine import FirecrawlEngine
+from modules.search.searxng_engine import SearxngEngine
+from modules.search.playwright_engine import PlaywrightEngine
 from agents.deep_research_v2 import DeepResearchAgent as AgentV2, TASK_DONE
 from agents.deep_research_v3 import DeepResearchAgent as AgentV3
 

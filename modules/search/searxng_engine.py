@@ -2,7 +2,7 @@ import os
 import aiohttp
 import requests
 from typing import List, override
-from modules.web.base_engine import SearchEngine, SearchResult
+from modules.search.base_engine import SearchEngine, SearchResult
 
 
 class SearxngEngine(SearchEngine):

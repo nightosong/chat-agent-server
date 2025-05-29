@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union, Annotated
 from modules.ai.llms import execute_completion, execute_completion_async
-from modules.web.base_engine import SearchEngine, SearchResult
+from modules.search.base_engine import SearchEngine, SearchResult
 from modules.loggers import logger
 
 TASK_DONE = "__DONE__"
